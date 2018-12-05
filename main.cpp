@@ -13,18 +13,24 @@ using namespace std;
 
 int main(void)
 {
-	printf("Calculator Lab\n");
+	printf("---- Calculator ----\n");
+	printf("Max 32-bit considered\n");
+	printf("A = +, B = -, D = div, * = mult, # = computation\n");
+	printf("Press C on the keypad to clear the display.\n");
+	printf("Press SW1 to retrieve latest computation from SRAM\n");
+	printf("Press SW2 to clear the display and memory\n");
+	printf("Press SW3 to input negative symbol\n");
 
 	//-- startup sequence --//
 	startup();
 	LD.clear();
 	delay_ms(100);
 	init_lcd();
+	clear_memory();
 	printf("Waiting for input...\n");
 
 	//-- kp input --//
 	char input = 0; //from keypad
-	char output = 0; //to console
 
 	//---- Status Variables ----//
 	//-- row counter for row 1, max 16 --//
@@ -54,13 +60,44 @@ int main(void)
 	vector<char>to_lcd_out;
 	int op_output = 0;
 
+	//-- Negative input status --//
+	int neg_status = 0;
+
 	//-- Polling infinitely --//
 	 while(1){
 		input = kp_check(); //outputs ASCII hex for input to LCD
- 	  output = char_lcd_table(input); //converts ASCII hex to readable char
+ 	  //char output = char_lcd_table(input); //converts ASCII hex to readable char
+
+		//-- Retrieve latest output from SRAM --//
+		if (SW.getSwitch(1) && row_status == 0) {
+			int read_value = read_from_sram();
+			string in_val = to_string(read_value);
+			//input mem value is negative
+			if (read_value < 0) {
+				count += in_val.length();
+				if (op_status == 1) {
+					op_count += in_val.length();
+				}
+			else if (op_status == 0) {
+					op_count += in_val.length();
+				}
+			}
+
+			else {
+				count += in_val.length()  ;
+				if (op_status == 1) {
+					op_count += in_val.length();
+				}
+				else if (op_status == 0) {
+					op_count += in_val.length();
+				}
+			}
+
+			lcd_print_output(in_val);
+		}
 
 		//-- Clear the LCD Display --//
- 	  if (input == get_lcd_char('C')) {
+ 	  else if (input == get_lcd_char('C')) {
  	    printf("LCD Display cleared\n");
  	    init_lcd();
 			count = 0;
@@ -73,11 +110,37 @@ int main(void)
 			op_b = 0;
 			to_lcd_out.clear();
 			op_output = 0;
+			neg_status = 0;
   	}
 
-		//-- Polling for Input --//
- 	  else if (input != 0) {
+		//-- Clear LCD Display AND SRAM memory--//
+		else if (SW.getSwitch(2)) {
+			printf("LCD Display cleared, SRAM memory cleared\n");
+ 	    init_lcd();
+			clear_memory();
+			count = 0;
+			row_status = 0;
+			op_status = 0;
+			op_count = 0;
+			op_a_in.clear();
+			op_a = 0;
+			op_b_in.clear();
+			op_b = 0;
+			to_lcd_out.clear();
+			op_output = 0;
+			neg_status = 0;
+		}
 
+		//-- Input negative symbol --//
+		else if (SW.getSwitch(3) && neg_status == 0) {
+			write_data_lcd(NEG);
+			neg_status = 1;
+			op_count += 1;
+			count += 1;
+		}
+
+		//-- Polling for KP Input --//
+ 	  else if (input != 0) {
  	    /*
 				Button # to "equal"
 				Gets input of second op and puts it in op_b
@@ -93,20 +156,34 @@ int main(void)
 					for (int i = 0; i < op_count; i++) {
 						op_a_in.push_back(read_lcd());
 					}
+
+					//put read value into op_a
+					int a_count = pow(10, op_a_in.size()-1);
+					printf("a = ");
+					if(!op_a_in.empty()) {
+						for (auto i: op_a_in) {
+							printf("%c", i);
+							op_a += ((i - '0') * (a_count));
+							a_count = a_count / 10;
+						}
+					}
 					//set LCD back to input set
 					write_lcd(LCD_INPUT);
 					// write spaces based on current count
 					write_space(count);
 
 					//begin output to LCD
-					string output(op_a_in.begin(), op_a_in.end());
-					lcd_print_output(output);
+					string output_str(to_string(op_a));
+					lcd_print_output(output_str);
 
+					//no op b input, print out op A
+					write_to_sram(op_a);
 					row_status = 1;
 				}
 
 				//op asserted
 				else if (op_status == 1) {
+					neg_status = 0;
 					//read op_b value
 					//decrement cursor to the left op_count times
 					for (int i = 0; i < op_count; i++) {
@@ -118,16 +195,26 @@ int main(void)
 
 					//op b is not empty, perform calculations
 					if (!op_b_in.empty()) {
-						//show value of op b in console
-						int b_count = pow(10, op_b_in.size()-1);
-						printf("b = ");
-						for (auto i: op_b_in) {
-							//put value of op_b_in into op_b
-							printf("%c", i);
-							op_b += ((i - '0') * (b_count));
-							b_count = b_count / 10;
+						//detect negative input
+						if (op_b_in.front() == '-') {
+							//erase negative symbol
+							op_b_in.erase(op_b_in.begin());
+							int b_count = pow(10, op_b_in.size()-1);
+							for (auto i: op_b_in) {
+								op_b += ((i -'0') * b_count);
+								b_count = b_count / 10;
+							}
+							//make op_b negative
+							op_b = ~op_b + 1;
 						}
-						printf("\n");
+
+						else {
+							int b_count = pow(10, op_b_in.size()-1);
+							for (auto i: op_b_in) {
+								op_b += ((i -'0') * b_count);
+								b_count = b_count / 10;
+							}
+						}
 
 						//print out spaces
 						write_space(count);
@@ -136,19 +223,44 @@ int main(void)
 						if (op_type == ADD) {
 							op_output = op_a + op_b;
 							lcd_print_output(to_string(op_output));
+							printf("%i + %i = %i\n", op_a, op_b, op_output);
+							write_to_sram(op_output);
 						}
 
 						else if (op_type == SUB) {
 							op_output = op_a - op_b;
 							lcd_print_output(to_string(op_output));
+							printf("%i - %i = %i\n", op_a, op_b, op_output);
+							write_to_sram(op_output);
 						}
 
 						else if (op_type == MULT) {
-							op_output = op_a * op_b;
-							if (op_output > 2147483647)
-								lcd_print_output("ERR: MAX INT"); //max 32 bit error
-							else
+							/*
+							if (op_a * op_b < 0 && (op_a > 0 || op_b > 0))
+								lcd_print_output("ERR:MAX INT"); //max 32 bit error
+								*/
+
+								int temp_a = op_a;
+								int temp_b = op_b;
+
+								if (op_a < 0) temp_a *= -1;
+								if (op_b < 0) temp_b *= -1;
+
+								if (op_a < 0 && op_b < 0) {
+									op_output = temp_a * temp_b;
+								}
+								else if (op_a < 0 || op_b < 0) {
+									op_output = temp_a * temp_b;
+									op_output = ~op_output + 1;
+								}
+
+								else {
+									op_output = op_a * op_b;
+								}
+								printf("%i * %i = %i\n", op_a, op_b, op_output);
 								lcd_print_output(to_string(op_output));
+								write_to_sram(op_output);
+
 						}
 
 						else if (op_type == DIV) {
@@ -157,6 +269,8 @@ int main(void)
 							else {
 								op_output = op_a / op_b;
 								lcd_print_output(to_string(op_output));
+								printf("%i / %i = %i\n", op_a, op_b, op_output);
+								write_to_sram(op_output);
 							}
 						}
 
@@ -166,15 +280,7 @@ int main(void)
 						}
 					}
 
-					//no op b input, print out op A
-					else {
-						write_space(count);
-						string output(op_a_in.begin(), op_a_in.end());
-						lcd_print_output(output);
-					}
-
 					//TODO: Store output value into SRAM
-					printf("Output: %i\n", op_output);
 					row_status = 1;
 				}
 			}
@@ -197,23 +303,37 @@ int main(void)
 						op_a_in.push_back(read_lcd());
 					}
 
-					int a_count = pow(10, op_a_in.size()-1);
-					printf("a = ");
 					if(!op_a_in.empty()) {
-						for (auto i: op_a_in) {
-							printf("%c", i);
-							op_a += ((i - '0') * (a_count));
-							a_count = a_count / 10;
+						//detect negative input
+						if (op_a_in.front() == '-') {
+							//erase negative symbol
+							op_a_in.erase(op_a_in.begin());
+							int a_count = pow(10, op_a_in.size()-1);
+							for (auto i: op_a_in) {
+								op_a += ((i -'0') * a_count);
+								a_count = a_count / 10;
+							}
+							//make op_a negative
+							op_a = ~op_a + 1;
+							printf("op_a = %i\n", op_a);
+						}
+
+						else {
+							int a_count = pow(10, op_a_in.size()-1);
+							for (auto i: op_a_in) {
+								op_a += ((i -'0') * a_count);
+								a_count = a_count / 10;
+							}
 						}
 					}
-					printf("\n");
+
 					op_count = 0; //reset op_count
 					op_status = 1; //set op_status to active
+					neg_status = 0; //reset neg_status
 					printf("op_status active\n");
 					write_lcd(LCD_CURSOR_SHIFT_R);
 					count += 1;
 				}
-
 
 			//-- default write data --//
  	    else if (count <= 16 && row_status == 0) {
@@ -221,7 +341,6 @@ int main(void)
  	      count += 1;
 				op_count += 1;
  	    }
-
 
 			//-- Max Characters for Row 1 --//
  	    else if (count >= 16 && row_status == 0){

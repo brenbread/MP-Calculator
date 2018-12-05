@@ -9,9 +9,10 @@
 using namespace std;
 
 char ADD = 0x2B; // +
-char SUB = 0x2D; // -
+char SUB = 0xB0; // -, originally 2D
 char MULT = 0x2A; // mult
 char DIV = 0xFD; // divide
+char NEG = 0x2D; // negative char
 
 
 //-- Program Steps --//
@@ -27,7 +28,7 @@ char DIV = 0xFD; // divide
 
 //-- Helper functions --//
 bool check_op_input(char input) {
-  if (input == get_lcd_char('+') || input == get_lcd_char('-') || input == 0xFD || input == get_lcd_char('*')) {
+  if (input == get_lcd_char('+') || input == SUB || input == 0xFD || input == get_lcd_char('*')) {
     return true;
   }
   else {
@@ -35,6 +36,7 @@ bool check_op_input(char input) {
   }
 }
 
+//-- for each char in the string, write it to the lcd --//
 void lcd_print_output(string output) {
   for (char& c : output) {
     write_data_lcd(c);
@@ -56,4 +58,61 @@ void write_space(int count) {
       write_data_lcd(get_lcd_char(' '));
     }
   }
+}
+
+//sets memory 0 to 3 locations to 0
+void clear_memory() {
+  for (int i = 0; i < 4; i++) {
+    main_write(i, 0x00);
+  }
+}
+
+//Reserve 3 locations in SRAM to write output data to
+// 0x00 = lower 8-bits
+// 0x01 = upper 8-bits (for 16-bit)
+// 0x02 + 0x03 = upper 16 bits (for 32-bit number)
+void write_to_sram(int num) {
+  clear_memory();
+
+  int bytes[4];
+  int shifter = 24;
+
+  //split output into 4 8-bit parts, then write it to respective SRAM location
+  for (int i = 0; i < 4; i++) {
+     bytes[i] = num >> shifter;
+     main_write(i, bytes[i]);
+     shifter -= 8;
+  }
+  printf("\n");
+}
+
+int read_from_sram() {
+  /*
+    array locations:
+      0 = lower 8-bits
+      1 = upper 8-bits for 16-bit, 1 << 8
+      2 + 3 = upper 16 bits for 32-bit number 2 << 16, 3 << 24
+      use bit shifting and add these together, and convert it to an int for your output
+  */
+
+  //read sram vals and put them into mem_0 array
+  int mem_0[4] = {};
+  int shifter = 0;
+
+  //pop the stack
+  for (int i = 3; i >= 0; --i) {
+    mem_0[i] = main_read(i); //read SRAM locations
+    mem_0[i] = mem_0[i] << shifter; //shift bits accordingly
+    shifter += 8;
+  }
+
+  //add bits together
+  int output = 0;
+  for (int i = 3; i >= 0; --i) {
+    output += mem_0[i];
+  }
+
+  printf("MEM0: %i\n", output);
+  return output;
+
 }

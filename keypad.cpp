@@ -161,8 +161,8 @@ char kp_check(){
     }
     else if (buffer[2]& 1<<3) {
       //B
-      //output = 0x42; B as subtract -
-      output = get_lcd_char('-');
+      //output = originally, 0x42; now 0xB0 B as subtract -
+      output = 0xB0;
       return output;
     }
 

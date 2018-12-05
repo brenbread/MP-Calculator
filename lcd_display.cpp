@@ -377,7 +377,7 @@ char char_lcd_table(char input) {
 }
 
 //get lcd ASCII value
-//literal char -> HEX ASCII
+// literal char -> HEX
 char get_lcd_char(char input) {
   char output = 0;
 
